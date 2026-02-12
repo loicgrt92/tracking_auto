@@ -1,0 +1,29 @@
+{
+  "name": "tracking-tester-automation",
+  "version": "1.0.0",
+  "description": "Automated tracking testing with Playwright for GA4, Amplitude, and Mixpanel",
+  "main": "tracking-tester.js",
+  "scripts": {
+    "test": "node tracking-tester.js",
+    "install-browsers": "npx playwright install chromium && npx playwright install-deps"
+  },
+  "keywords": [
+    "analytics",
+    "tracking",
+    "testing",
+    "ga4",
+    "amplitude",
+    "mixpanel",
+    "playwright",
+    "automation",
+    "n8n"
+  ],
+  "author": "Votre Nom",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

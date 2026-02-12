@@ -1,0 +1,242 @@
+{
+  "name": "🎯 Tracking Tester - Automatisation hebdomadaire",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0,
+              "triggerAtDay": 1
+            }
+          ]
+        }
+      },
+      "name": "⏰ Déclenchement Hebdomadaire",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "id": "schedule-trigger",
+      "typeVersion": 1,
+      "notes": "S'exécute chaque lundi à 9h00"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": "b56e975df0f84fe48284aa40f1dadda7",
+        "returnAll": true,
+        "filterType": "manual",
+        "matchType": "anyFilter",
+        "filters": {
+          "conditions": [
+            {
+              "key": "Statut Test",
+              "condition": "equals",
+              "value": "⏳ En attente"
+            },
+            {
+              "key": "Statut Test",
+              "condition": "equals",
+              "value": "🔄 À retester"
+            }
+          ]
+        }
+      },
+      "name": "📋 Lire Plan de Mesure Notion",
+      "type": "n8n-nodes-base.notion",
+      "position": [450, 300],
+      "id": "notion-read",
+      "typeVersion": 2,
+      "notes": "Récupère tous les événements à tester depuis Notion",
+      "credentials": {
+        "notionApi": {
+          "id": "YOUR_NOTION_CREDENTIAL_ID",
+          "name": "Notion Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 🔧 Préparer les données pour Playwright\n// Cette fonction transforme les données Notion en config de test\n\nconst items = $input.all();\nconst testConfigs = [];\n\nfor (const item of items) {\n  const config = {\n    // ID de la page Notion pour mise à jour ultérieure\n    notionPageId: item.json.id,\n    \n    // Configuration du test\n    eventName: item.json['Événement'] || 'unnamed_event',\n    url: item.json['URL Test'] || '',\n    userAction: item.json['Action utilisateur'] || '',\n    dataLayerEventName: item.json['Nom dataLayer'] || item.json['Événement'],\n    expectedParams: item.json['Paramètres attendus'] || '{}',\n    \n    // Quels outils tester ?\n    testGA4: item.json.GA4 === true,\n    testAmplitude: item.json.Amplitude === true,\n    testMixpanel: item.json.Mixpanel === true,\n    \n    // Métadonnées\n    type: item.json.Type || 'Custom',\n    priority: item.json['Priorité'] || '🟡 Moyenne',\n    context: item.json['Page/Contexte'] || ''\n  };\n  \n  // Valider que l'URL est présente\n  if (!config.url) {\n    config.skipTest = true;\n    config.skipReason = 'URL manquante';\n  }\n  \n  testConfigs.push({ json: config });\n}\n\nreturn testConfigs;"
+      },
+      "name": "🔧 Préparer Config Tests",
+      "type": "n8n-nodes-base.function",
+      "position": [650, 300],
+      "id": "prepare-config",
+      "typeVersion": 1,
+      "notes": "Transforme les données Notion en configuration de test"
+    },
+    {
+      "parameters": {
+        "command": "=cd /home/claude && node tracking-tester.js '{{ JSON.stringify($json) }}'"
+      },
+      "name": "🎭 Exécuter Test Playwright",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [850, 300],
+      "id": "run-playwright",
+      "typeVersion": 1,
+      "notes": "Lance le script Playwright pour tester le tracking"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 📊 Parser les résultats du test Playwright\n// Cette fonction analyse le JSON retourné par Playwright\n\nconst items = $input.all();\nconst parsedResults = [];\n\nfor (const item of items) {\n  try {\n    // Le résultat de Playwright est dans stdout\n    const playwrightOutput = item.json.stdout;\n    \n    // Extraire le JSON des résultats\n    const jsonMatch = playwrightOutput.match(/\\{[\\s\\S]*\\}/);\n    \n    if (jsonMatch) {\n      const results = JSON.parse(jsonMatch[0]);\n      \n      // Formater pour Notion\n      const notionUpdate = {\n        notionPageId: item.json.notionPageId,\n        success: results.success,\n        \n        // Statut\n        status: results.success ? '✅ Validé' : '❌ Échoué',\n        \n        // Date d'exécution\n        executionDate: results.timestamp,\n        \n        // Détails d'erreur\n        errorDetails: results.errors.join(', ') || '',\n        \n        // Résumé des outils détectés\n        toolsSummary: Object.entries(results.toolsDetected)\n          .filter(([tool, detected]) => detected)\n          .map(([tool, _]) => tool.toUpperCase())\n          .join(', '),\n        \n        // Paramètres validés\n        validatedParams: results.validatedParams || {},\n        \n        // Nombre d'événements capturés\n        dataLayerEventsCount: results.dataLayerEvents.length,\n        networkRequestsCount: results.networkRequests.length\n      };\n      \n      parsedResults.push({ json: notionUpdate });\n    } else {\n      // Erreur de parsing\n      parsedResults.push({\n        json: {\n          notionPageId: item.json.notionPageId,\n          success: false,\n          status: '❌ Échoué',\n          errorDetails: 'Impossible de parser les résultats Playwright',\n          executionDate: new Date().toISOString()\n        }\n      });\n    }\n  } catch (error) {\n    parsedResults.push({\n      json: {\n        notionPageId: item.json.notionPageId,\n        success: false,\n        status: '❌ Échoué',\n        errorDetails: error.message,\n        executionDate: new Date().toISOString()\n      }\n    });\n  }\n}\n\nreturn parsedResults;"
+      },
+      "name": "📊 Parser Résultats",
+      "type": "n8n-nodes-base.function",
+      "position": [1050, 300],
+      "id": "parse-results",
+      "typeVersion": 1,
+      "notes": "Analyse les résultats du test"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": "={{ $json.notionPageId }}",
+        "properties": {
+          "property": [
+            {
+              "key": "Statut Test",
+              "textValue": "={{ $json.status }}"
+            },
+            {
+              "key": "date:Dernière exécution:start",
+              "textValue": "={{ $json.executionDate.split('T')[0] }}"
+            },
+            {
+              "key": "Détails erreur",
+              "textValue": "={{ $json.errorDetails }}"
+            }
+          ]
+        }
+      },
+      "name": "✏️ Mettre à jour Notion",
+      "type": "n8n-nodes-base.notion",
+      "position": [1250, 300],
+      "id": "notion-update",
+      "typeVersion": 2,
+      "notes": "Met à jour le statut dans Notion",
+      "credentials": {
+        "notionApi": {
+          "id": "YOUR_NOTION_CREDENTIAL_ID",
+          "name": "Notion Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 📧 Générer un rapport récapitulatif\n\nconst items = $input.all();\nconst totalTests = items.length;\nconst successCount = items.filter(i => i.json.success).length;\nconst failCount = totalTests - successCount;\n\nconst failedTests = items\n  .filter(i => !i.json.success)\n  .map(i => `• ${i.json.eventName || 'Test inconnu'} : ${i.json.errorDetails}`);\n\nconst report = {\n  subject: `🎯 Rapport Tracking - ${successCount}/${totalTests} tests validés`,\n  summary: `\n📊 RAPPORT HEBDOMADAIRE DE TRACKING\n\n✅ Tests réussis : ${successCount}\n❌ Tests échoués : ${failCount}\n📈 Taux de succès : ${Math.round((successCount/totalTests)*100)}%\n\n${ failCount > 0 ? `⚠️ TESTS EN ÉCHEC :\\n${failedTests.join('\\n')}` : '🎉 Tous les tests sont passés avec succès !' }\n\n🔗 Voir le plan de mesure : https://notion.so/...\n  `,\n  totalTests,\n  successCount,\n  failCount,\n  successRate: Math.round((successCount/totalTests)*100)\n};\n\nreturn [{ json: report }];"
+      },
+      "name": "📧 Générer Rapport",
+      "type": "n8n-nodes-base.function",
+      "position": [1450, 300],
+      "id": "generate-report",
+      "typeVersion": 1,
+      "notes": "Crée un résumé des tests"
+    },
+    {
+      "parameters": {
+        "fromEmail": "tracking-tests@votredomaine.com",
+        "toEmail": "votre-email@votredomaine.com",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.summary }}"
+      },
+      "name": "📨 Envoyer Email",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [1650, 300],
+      "id": "send-email",
+      "typeVersion": 2,
+      "notes": "Envoie le rapport par email",
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "name": "SMTP Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "⏰ Déclenchement Hebdomadaire": {
+      "main": [
+        [
+          {
+            "node": "📋 Lire Plan de Mesure Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Lire Plan de Mesure Notion": {
+      "main": [
+        [
+          {
+            "node": "🔧 Préparer Config Tests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Préparer Config Tests": {
+      "main": [
+        [
+          {
+            "node": "🎭 Exécuter Test Playwright",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🎭 Exécuter Test Playwright": {
+      "main": [
+        [
+          {
+            "node": "📊 Parser Résultats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Parser Résultats": {
+      "main": [
+        [
+          {
+            "node": "✏️ Mettre à jour Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✏️ Mettre à jour Notion": {
+      "main": [
+        [
+          {
+            "node": "📧 Générer Rapport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📧 Générer Rapport": {
+      "main": [
+        [
+          {
+            "node": "📨 Envoyer Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
